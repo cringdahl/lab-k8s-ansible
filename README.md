@@ -2,6 +2,8 @@
 
 Fill out the `lab` inventory file and the `vars.yml` file, run the below ansible playbooks, and you're done.
 
+Lifted and updated from [spacelift.io](https://spacelift.io/blog/ansible-kubernetes)
+
 ## Order of Operations
 
 * node_setup.yml
