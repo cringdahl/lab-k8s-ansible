@@ -1,0 +1,4 @@
+k8s_ver: "1.32"
+cilium_helm_ver: "v1.17.1"
+username: nevlik
+control_host: n1

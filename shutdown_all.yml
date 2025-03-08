@@ -1,0 +1,6 @@
+- name: Shutdown
+  hosts: all
+  become: true
+  tasks:
+    - name: Shutdown
+      community.general.shutdown:

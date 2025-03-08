@@ -1,0 +1,70 @@
+- name: Configure Control Nodes
+  hosts: control
+  become: true
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Configure container runtime
+      ansible.builtin.blockinfile:
+        path: /etc/kubernetes/kubeadm-config.yaml
+        create: true
+        mode: "0644"
+        block: |
+          kind: ClusterConfiguration
+          apiVersion: kubeadm.k8s.io/v1beta4
+          networking:
+            podSubnet: "10.244.0.0/16"
+          ---
+          kind: KubeletConfiguration
+          apiVersion: kubelet.config.k8s.io/v1beta1
+          runtimeRequestTimeout: "15m"
+          cgroupDriver: "systemd"
+          systemReserved:
+            cpu: 100m
+            memory: 350M
+          kubeReserved:
+            cpu: 100m
+            memory: 50M
+          enforceNodeAllocatable:
+          - pods
+
+    - name: Initialize the cluster
+      ansible.builtin.shell: kubeadm init --config /etc/kubernetes/kubeadm-config.yaml >> cluster_initialized.log
+      args:
+        chdir: "/home/{{ username }}"
+        creates: cluster_initialized.log
+
+    - name: "Create {{ username }} .kube directory" # noqa: name
+      become: true
+      become_user: "{{ username }}"
+      ansible.builtin.file:
+        path: $HOME/.kube
+        state: directory
+        mode: "0755"
+
+    - name: Copy admin.conf to user's kube config
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: "/home/{{ username }}/.kube/config"
+        remote_src: true
+        mode: "0644"
+        owner: "{{ username }}"
+
+    # - name: Install Pod Network
+    #   become: true
+    #   become_user: "{{ username }}"
+    #   shell: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/control/Documentation/kube-flannel.yml >> pod_network_setup.log
+    #   args:
+    #     chdir: $HOME
+    #     creates: pod_network_setup.log
+
+    - name: Install Pod Network
+      kubernetes.core.helm:
+        kubeconfig_path: "/home/{{ username }}/.kube/config"
+        name: cilium
+        namespace: kube-system
+        chart_repo_url: https://helm.cilium.io/
+        chart_ref: cilium
+        chart_version: "{{ cilium_helm_ver }}"
+        history_max: 3
+        wait: true

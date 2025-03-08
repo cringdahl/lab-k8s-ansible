@@ -1,0 +1,34 @@
+# hostnames and ssh user/keys are installed during memcard flash
+- name: Initial node setup
+  hosts: all
+  become: true
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Run apt update
+      ansible.builtin.apt:
+        update_cache: true
+    - name: Run apt dist-upgrade
+      ansible.builtin.apt:
+        upgrade: dist
+    - name: Install useful lab packages
+      ansible.builtin.apt:
+        name:
+          - dnsutils
+          - git
+          - build-essential
+          - sshfs
+          - nmap
+          - default-mysql-client
+          - python3-pip
+          - python3-yaml
+    - name: Add cgroup_enable=memory to kernel cmdline
+      ansible.builtin.lineinfile:
+        path: /boot/firmware/cmdline.txt
+        regexp: '^(.*)$'
+        line: '\1 cgroup_enable=memory'
+        backrefs: true
+      when: ansible_facts['cmdline']['cgroup_enable'] is not defined
+    - name: Reboot if cgroup_enable=memory is not live
+      ansible.builtin.reboot:
+      when: ansible_facts['cmdline']['cgroup_enable'] is not defined
