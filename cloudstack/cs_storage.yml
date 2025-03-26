@@ -1,0 +1,64 @@
+# Currently no external storage, just designating space on main disk
+- name: Setup Cloudstack Storage
+  hosts: control
+  become: true
+  tasks:
+    - name: Install nfs-server and quota
+      ansible.builtin.apt:
+        name:
+          - nfs-server
+          - quota
+    - name: Setup NFS paths
+      ansible.builtin.file:
+        path: |
+          - /export/primary
+          - /export/secondary
+        state: directory
+        mode: "0755"
+        owner: root
+    - name: Configure exports
+      ansible.builtin.lineinfile:
+        path: /etc/exports
+        line: /export  *(rw,async,no_root_squash,no_subtree_check)
+      notify: Restart nfs-kernel-server
+    - name: Configure quota
+      ansible.builtin.lineinfile:
+        path: /etc/default/quota
+        regexp: '^RPCRQUOTADOPTS=$'
+        line: 'RPCRQUOTADOPTS="-p 875"'
+      notify: Restart nfs-kernel-server
+    - name: Configure nfs-kernel-server
+      ansible.builtin.lineinfile:
+        path: /etc/default/nfs-kernel-server
+        regexp: '^RPCMOUNTDOPTS="--manage-gids"$'
+        line: 'RPCMOUNTDOPTS="-p 892 --manage-gids"'
+      notify: Restart nfs-kernel-server
+    - name: Configure nfs-common STATDOPTS
+      ansible.builtin.lineinfile:
+        path: /etc/default/nfs-common
+        regexp: '^STATDOPTS=$'
+        line: 'STATDOPTS="--port 662 --outgoing-port 2020"'
+      notify: Restart nfs-kernel-server
+    - name: Configure nfs-common NEED_STATD
+      ansible.builtin.lineinfile:
+        path: /etc/default/nfs-common
+        regexp: '^NEED_STATD=^'
+        line: NEED_STATD=yes
+      notify: Restart nfs-kernel-server
+    - name: Install systemvm template
+      ansible.builtin.shell:
+        cmd: |
+          /usr/share/cloudstack-common/scripts/storage/secondary/cloud-install-sys-tmplt \
+          -u http://download.cloudstack.org/systemvm/4.20/systemvmtemplate-4.20.0-aarch64-kvm.qcow2.bz2 \
+          -m /export/secondary -h kvm \
+          -o localhost -r cloud -d cloud || exit 2
+      register: systemvm
+      changed_when: systemvm.rc == 0
+      failed_when: # let script pass if image already installed
+        - systemvm.rc != 0
+        - '"Data already exists at destination" not in systemvm.stdout_lines[0]'
+  handlers:
+    - name: Restart nfs-kernel-server
+      ansible.builtin.service:
+        name: nfs-kernel-server
+        state: restarted

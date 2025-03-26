@@ -1,0 +1,82 @@
+- name: Install Cloudstack Management Server
+  hosts: control
+  become: true
+  tasks:
+    - name: Install mysql packages
+      ansible.builtin.apt:
+        name:
+          - mysql-server
+    - name: Add mysql config
+      notify: Restart mysql
+      ansible.builtin.blockinfile:
+        path: /etc/mysql/mysql.conf.d/mysqld.cnf
+        create: true
+        mode: "0644"
+        block: |
+          [mysqld]
+
+          server_id = 1
+          sql-mode="STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION,ERROR_FOR_DIVISION_BY_ZERO,NO_ZERO_DATE,NO_ZERO_IN_DATE,NO_ENGINE_SUBSTITUTION"
+          innodb_rollback_on_timeout=1
+          innodb_lock_wait_timeout=600
+          max_connections=1000
+          log-bin=mysql-bin
+          binlog-format = 'ROW'
+
+          default-authentication-plugin=mysql_native_password
+    - name: Add Cloudstack apt-key
+      ansible.builtin.get_url:
+        url: "http://packages.shapeblue.com/release.asc"
+        dest: /etc/apt/keyrings/cloudstack.asc
+        mode: "0644"
+        force: true
+
+    - name: Add Cloudstack APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/cloudstack.asc] http://packages.shapeblue.com/cloudstack/upstream/debian/4.20 /"
+        state: present
+        update_cache: true
+
+    - name: Install cloudstack-management and cloudstack-usage
+      notify: Stop cloudstack management
+      ansible.builtin.apt:
+        name:
+          - cloudstack-management
+          - cloudstack-usage
+        policy_rc_d: 101 # don't start services
+    - name: Check db.properties
+      ansible.builtin.stat:
+        path: /etc/cloudstack/management/db.properties
+      register: db_properties
+    - name: Setup cloudstack database
+      ansible.builtin.shell: | # setup starts mysql, no way around it
+        /usr/bin/cloudstack-setup-databases cloud:cloud@localhost --deploy-as=root: -i {{ ansible_facts["all_ipv4_addresses"][0] }}
+      changed_when: db_properties.stat.exists
+      when: not db_properties.stat.exists
+    - name: Check setup log file
+      ansible.builtin.stat:
+        path: /var/log/cloudstack/management/setupManagement.log
+      register: setup_log_file
+    - name: Setup cloudstack management
+      notify: Start cloudstack management
+      ansible.builtin.shell: |
+        /usr/bin/cloudstack-setup-management --no-start
+      changed_when: setup_log_file.stat.exists
+      when: not setup_log_file.stat.exists
+  handlers:
+    - name: Restart mysql
+      ansible.builtin.service:
+        name: mysql
+        state: restarted
+    - name: Stop cloudstack management
+      ansible.builtin.service:
+        name: |
+          cloudstack-management
+          cloudstack-usage
+        state: stopped
+    - name: Start cloudstack management
+      ansible.builtin.service:
+        name: |
+          cloudstack-management
+          cloudstack-usage
+        state: start

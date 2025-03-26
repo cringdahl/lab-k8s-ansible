@@ -1,0 +1,118 @@
+- name: Install Cloudstack Compute
+  hosts: workers
+  become: true
+  tasks:
+    - name: Add Cloudstack apt-key
+      ansible.builtin.get_url:
+        url: "http://packages.shapeblue.com/release.asc"
+        dest: /etc/apt/keyrings/cloudstack.asc
+        mode: "0644"
+        force: true
+    - name: Add Cloudstack APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/cloudstack.asc] http://packages.shapeblue.com/cloudstack/upstream/debian/4.20 /"
+        state: present
+        update_cache: true
+    - name: Install qemu-kvm and cloudstack-agent
+      ansible.builtin.apt:
+        name:
+          - qemu-kvm
+          - cloudstack-agent
+    - name: Check Smallstep CA
+      ansible.builtin.stat:
+        path: /etc/pki/CA/cacert.pem
+      register: ca
+      notify: Obtain Smallstep CA
+    - name: Ensure /etc/pki/CA/
+      ansible.builtin.file:
+        mode: "0755"
+        state: directory
+        path: /etc/pki/CA
+    - name: Install Smallstep CA
+      ansible.builtin.copy:
+        mode: "0444"
+        content: step.stdout
+        dest: /etc/pki/CA/cacert.pem
+        notify: Restart libvirtd
+      when: not ca.stat.exists
+    - name: Enable VNC to console proxy
+      notify: Restart libvirtd
+      ansible.builtin.lineinfile:
+        path: /etc/libvirt/qemu.conf
+        regexp: '#vnc_listen.*$'
+        line: 'vnc_listen = "0.0.0.0"'
+    - name: Disable security_driver
+      notify: Restart libvirtd
+      ansible.builtin.lineinfile:
+        path: /etc/libvirt/qemu.conf
+        line: 'security_driver = "none"'
+    # - name: Configure /etc/default/libvirtd
+    #   notify: Restart libvirtd
+    #   ansible.builtin.blockinfile:
+    #     path: /etc/default/libvirtd
+    #     block: |
+    #       LIBVIRTD_ARGS="--listen"
+    #     state: absent
+    - name: Configure /etc/libvirt/libvirtd.conf
+      notify: Restart libvirtd
+      ansible.builtin.blockinfile:
+        path: /etc/libvirt/libvirtd.conf
+        block: |
+          listen_tls=0
+          listen_tcp=1
+          tcp_port="16509"
+          mdns_adv=0
+          auth_tcp="none"
+    # at this point in compute setup, "socket/listen" behaviors are mentioned
+    # leaving them out since it's systemctl masking sockets,
+    # also it's a "maybe"
+    # - name: Mask libvirtd.socket
+    #   notify: Restart libvirtd
+    #   ansible.builtin.systemd:
+    #     name: libvirtd.socket
+    #     masked: false
+    # - name: Mask libvirtd-admin.socket
+    #   notify: Restart libvirtd
+    #   ansible.builtin.systemd:
+    #     name: libvirtd-admin.socket
+    #     masked: false
+    # - name: Mask libvirtd-ro.socket
+    #   notify: Restart libvirtd
+    #   ansible.builtin.systemd:
+    #     name: libvirtd-ro.socket
+    #     masked: false
+    # - name: Mask libvirtd-tls.socket
+    #   notify: Restart libvirtd
+    #   ansible.builtin.systemd:
+    #     name: libvirtd-tls.socket
+    #     masked: false
+    # - name: Mask libvirtd-tcp.socket
+    #   notify: Restart libvirtd
+    #   ansible.builtin.systemd:
+    #     name: libvirtd-tcp.socket
+    #     masked: false
+
+    - name: Configure agent.properties
+      notify: Restart cloudstack-agent
+      ansible.builtin.blockinfile:
+        path: /etc/cloudstack/agent/agent.properties
+        block: |
+          guest.cpu.arch=aarch64
+          guest.cpu.mode=host-passthrough
+          host.cpu.manual.speed.mhz=1500
+          host.reserved.mem.mb=800
+  handlers:
+    - name: Restart libvirtd
+      ansible.builtin.service:
+        name: libvirtd
+        state: restarted
+    - name: Restart cloudstack-agent
+      ansible.builtin.service:
+        name: cloudstack-agent
+        state: restarted
+    - name: Obtain Smallstep CA # noqa: no-changed-when
+      ansible.builtin.command:
+        cmd: smallstep ca root
+      delegate_to: localhost
+      register: step
+      notify: Install Smallstep CA

@@ -1,0 +1,70 @@
+- name: Install Cloudstack Networking
+  hosts: all
+  become: true
+  tasks:
+    - name: Get cloudstack ssh pubkey from mgmt server # noqa: run-once[task]
+      when: "'control' in group_names"
+      ansible.builtin.slurp:
+        src: /var/lib/cloudstack/management/.ssh/id_rsa.pub
+      register: pubkey
+      run_once: true
+    - name: Add pubkey content to root .ssh authorized keys
+      # move to non-root user at some point
+      # https://docs.cloudstack.apache.org/en/latest/installguide/configuration.html#kvm-host-additional-requirements
+      ansible.builtin.copy:
+        owner: root
+        mode: "0600"
+        content: "{{ pubkey.content }}"
+        dest: /root/.ssh/authorized_keys
+    # this is technically part of OS installation
+    # but included here since all nodes get it
+    - name: Disable standard apt behavior
+      ansible.builtin.blockinfile:
+        path: /etc/apt/apt.conf
+        create: true
+        mode: "0644"
+        block: |
+          APT::Periodic::Update-Package-Lists "0";
+          APT::Periodic::Unattended-Upgrade "1";
+    - name: Remove cloud-init netplan file
+      ansible.builtin.file:
+        path: /etc/netplan/50-cloud-init.yaml
+        state: absent
+
+    - name: Add cloudbr0 netplan file
+      notify: Netplan generate & apply
+      ansible.builtin.blockinfile:
+        path: /etc/netplan/01-netcfg.yaml
+        create: true
+        mode: "0400"
+        block: |
+          network:
+            version: 2
+            renderer: networkd
+            ethernets:
+              eth0:
+                dhcp4: false
+                dhcp6: false
+                optional: true
+            bridges:
+              cloudbr0:
+                addresses: [192.168.0.111/24]
+                routes:
+                - to: default
+                  via: 192.168.0.1
+                nameservers:
+                  addresses: [192.168.0.5,8.8.8.8]
+                interfaces: [eth0]
+                dhcp4: false
+                dhcp6: false
+                parameters:
+                  stp: false
+                  forward-delay: 0
+  handlers:
+    - name: Netplan generate & apply # noqa: no-changed-when
+      ansible.builtin.shell: |
+        netplan generate
+        netplan apply
+      notify: Post netplan reboot
+    - name: Post netplan reboot
+      ansible.builtin.reboot:
