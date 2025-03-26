@@ -11,15 +11,28 @@
     - name: Run apt dist-upgrade
       ansible.builtin.apt:
         upgrade: dist
+    - name: Remove not useful lab packages
+      ansible.builtin.apt:
+        name:
+          - unattended-upgrades
+          - snapd
+          - cloud-init
+        purge: true
+        autoremove: true
     - name: Install useful lab packages
       ansible.builtin.apt:
         name:
+          - bridge-utils
+          - build-essential
+          - cpu-checker
+          - default-mysql-client
           - dnsutils
           - git
-          - build-essential
-          - sshfs
+          - glances
+          - net-tools
           - nmap
-          - default-mysql-client
+          - raspi-config
+          - sshfs
           - python3-pip
           - python3-yaml
     - name: Add cgroup_enable=memory to kernel cmdline
@@ -31,4 +44,5 @@
       when: ansible_facts['cmdline']['cgroup_enable'] is not defined
     - name: Reboot if cgroup_enable=memory is not live
       ansible.builtin.reboot:
+      # only actually required in Raspberry Pi OS, but a reboot here isn't a bad idea
       when: ansible_facts['cmdline']['cgroup_enable'] is not defined
