@@ -17,6 +17,7 @@
           - unattended-upgrades
           - snapd
           - cloud-init
+        state: absent
         purge: true
         autoremove: true
     - name: Install useful lab packages
