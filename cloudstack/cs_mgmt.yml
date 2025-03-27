@@ -50,7 +50,7 @@
       register: db_properties
     - name: Setup cloudstack database
       ansible.builtin.shell: | # setup starts mysql, no way around it
-        /usr/bin/cloudstack-setup-databases cloud:cloud@localhost --deploy-as=root: -i {{ ansible_facts["all_ipv4_addresses"][0] }}
+        /usr/bin/cloudstack-setup-databases cloud:cloud@localhost --deploy-as=root: -i {{ ansible_facts["default_ipv4"]["address"] }}
       changed_when: db_properties.stat.exists
       when: not db_properties.stat.exists
     - name: Check setup log file
